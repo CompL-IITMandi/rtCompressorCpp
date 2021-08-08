@@ -574,28 +574,66 @@ class RshJsonParser {
   }
 };
 
-int main() {
-  srand(time(0));
-  std::string del = ",";
-  RshJsonParser parser(del);
-  std::ifstream loggFile;
-  std::stringstream path, output;
-  path << "/home/meetesh06/compL/rtCompressorCpp/flex.logg";
-  output << "/home/meetesh06/compL/rtCompressorCpp/flex.json";
-  loggFile.open(path.str());
+bool validInputPath(char * inputPath) {
+  char * t = inputPath;
+  while (*t != '\0') {
+    if (*t == '.') {
+      if (*(++t) == 'l' && *(++t) == 'o' && *(++t) == 'g' && *(++t) == 'g') return true;
+      return false;
+    }
+    t++;
+  }
+  std::cout << std::endl;
+  return false;
+}
 
-  if( !loggFile ) { // file couldn't be opened
-    std::cerr << "unable to open logg file" << std::endl;
+bool validOutputPath(char * inputPath) {
+  char * t = inputPath;
+  while (*t != '\0') {
+    if (*t == '.') {
+      if (*(++t) == 'j' && *(++t) == 's' && *(++t) == 'o' && *(++t) == 'n') return true;
+      return false;
+    }
+    t++;
+  }
+  std::cout << std::endl;
+  return false;
+}
+
+int main(int argc, char** argv) {
+  srand(time(0));
+
+  std::string del = ",";
+
+  char* inputPath = argv[1];
+  char* outputPath = argv[2];
+  
+  if (!validInputPath(inputPath)) {
+    std::cerr << "ERR: Input file path not specified [with .logg extension]" << std::endl;
+    exit(0);
+  }
+  if (!validOutputPath(outputPath)) {
+    std::cerr << "ERR: Output file path not specified [with .json extension]" << std::endl;
+    exit(0);
+  }
+
+  std::ifstream loggFile;
+  loggFile.open(inputPath);
+  if( !loggFile ) {
+    std::cerr << "ERR: Unable to open logg file" << std::endl;
     exit(1);
   }
-
-  // temp file opened
-  std::string tp;
-  while(getline(loggFile, tp)){ //read data from file object and put it into string.
-    parser.processLine(tp);
-  }
-
-  parser.saveJson(output.str());
   
-  loggFile.close(); //close the file object.
+  RshJsonParser parser(del);
+
+  // Start processing the file
+  std::string line;
+  while(getline(loggFile, line)){
+    parser.processLine(line);
+  }
+  loggFile.close();
+
+  parser.saveJson(outputPath);
+  
+  
 }
