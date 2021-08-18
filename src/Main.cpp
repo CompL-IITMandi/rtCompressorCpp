@@ -168,17 +168,37 @@ class RshJsonParser {
     RshMethod method = hsm->pop();
     size_t pos = 0;
     std::string token, del = "\"";
+    double runtime = 0;
+    std::string context;
     int index = 0;
     while ((pos = line.find(del)) != std::string::npos) {
       token = line.substr(0, pos);
       switch(index) {
-        case 1: method.context=(token.compare("") == 0) ? "baseline" : token; break;
+        case 1: context=(token.compare("") == 0) ? "baseline" : token; break;
       }
       line.erase(0, pos + del.length());
       index++;
     }
     line.erase(0, 1);
-    method.runtime = std::stod(line);
+    pos = 0;
+    token, del = ",";
+    index = 0;
+    std::string method_id;
+    while ((pos = line.find(del)) != std::string::npos) {
+      token = line.substr(0, pos);
+      switch(index) {
+        case 0: runtime = std::stod(token); break;
+      }
+      line.erase(0, pos + del.length());
+      index++;
+    }
+    method_id = line;
+    while (method_id.compare(method.id) != 0) {
+      std::cout << "method broken: " << method.id << " popping stack" << std::endl;
+      method = hsm->pop();
+    }
+    method.runtime = runtime;
+    method.context = context;
     updateMethodCSMap(method);
     updateMethodCTMap(method);
     updateMethodRuntimeMap(method);
