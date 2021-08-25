@@ -3,18 +3,21 @@
 #include <iostream>
 
 struct RshMethod {
-  std::string id, name, context;
+  std::string id, name, context, hast;
   bool compiled = false;
+  unsigned long contextI = 0;
   double rir2pir=0.0, opt = 0.0, bb = 0.0, p = 0.0, failed = 0.0, runtime = 0.0, effect = 0.0;
 };
 
 
 struct ContextRuntimeSummary {
   int runs = 0;
+  unsigned long contextI = 0;
   double cmp = 0.0, opt = 0.0, run = 0.0;
 };
 
 struct MethodRuntimeSummary {
+  std::string hast;
   double rir2pir = 0.0, opt = 0.0, runtime = 0.0, effect = 0.0;
 };
 

@@ -12,6 +12,9 @@
 #include <unordered_map>
 #include <set>
 #include <algorithm>
+
+#define BLACKLIST_THRESHOLD 10
+
 // lineData = line.split(",")
 //
 // Method Start: =
@@ -60,6 +63,7 @@ void(*lineToObjectParser)(RshMethod &,std::string &,std::string &) = [](RshMetho
       case 9: method.failed      = std::stod(tp.substr(start, end - start)); break;
       case 10: method.runtime    = std::stod(tp.substr(start, end - start)); break;
       case 11: method.effect     = std::stod(tp.substr(start, end - start)); break;
+      case 12: method.hast       = tp.substr(start, end - start);            break;
     }
     start = end + del.size();
     end = tp.find(del, start);
@@ -79,12 +83,18 @@ class RshJsonParser {
   HugeStackManager<RshMethod>* hsm;
   std::string & del;
 
+  int blacklisted = 0;
+  int whitelisted = 0;
+  int failed = 0;
+
   std::unordered_map<std::string, std::unordered_map<std::string,std::vector<double>>> methodCSMap;     // [id,context] -> [runtimes]
   std::unordered_map<std::string, std::unordered_map<std::string,ContextRuntimeSummary>> methodCTMap;   // [id,context] -> { runs, cmp, opt, run }
   std::unordered_map<std::string, MethodRuntimeSummary> methodRuntimeMap;                               // id -> { rir2pir, opt, runtime, effect; }
   std::unordered_map<std::string, std::set<std::string>> methodContextMap;                              // id -> set [ context ]
   std::unordered_map<std::string, std::set<std::string>> methodCallMap;                                 // id -> set [ ids ]
   std::unordered_map<std::string, Meta> methodMeta;                                                     // id -> { name, runs }
+  std::unordered_map<std::string, std::vector<unsigned long>> blacklistMap;                             // id -> { name, runs }
+  std::unordered_map<std::string, std::vector<unsigned long>> whitelistMap;                             // id -> { name, runs }
 
   std::unordered_map<std::string, std::vector<int>> boxContextCallRuns;                                 // id -> [ contexts ]
   int colorGenerator = 1;
@@ -110,6 +120,7 @@ class RshJsonParser {
       token = line.substr(0, pos);
       switch(index) {
         case 1: removeQuotes(token); method.id=token; break;
+        case 2: method.hast=token; break;
       }
       line.erase(0, pos + del.length());
       index++;
@@ -143,24 +154,36 @@ class RshJsonParser {
     std::string token;
     int index = 0;
     bool compiled = false;
+
+    double rir2pir, opt, failed;
+    int bb, p;
+
     while ((pos = line.find(del)) != std::string::npos) {
       token = line.substr(0, pos);
       // std::cout << "token: " << token << std::endl;
       switch(index) {
         case 1: if (token.compare("true") == 0) compiled = true; break;
-        case 2: method.rir2pir = std::stod(token); break;
-        case 3: method.opt     = std::stod(token); break;
-        case 4: method.bb      = std::stoi(token); break;
+        case 2: rir2pir = std::stod(token); break;
+        case 3: opt     = std::stod(token); break;
+        case 4: bb      = std::stoi(token); break;
+        case 5: p       = std::stoi(token); break;
       }
       line.erase(0, pos + del.length());
       index++;
     }
-    method.compiled = compiled;
     if (compiled) {
-      method.p = std::stoi(line);
+      while (line.compare(method.id) != 0) {
+        failed++;
+        method = hsm->pop();
+      }
+      method.rir2pir = rir2pir;
+      method.opt = opt;
+      method.bb = bb;
+      method.p = p;
     } else {
       method.failed = std::stod(line);
     }
+    method.compiled = compiled;
     hsm->push(method);
   }
 
@@ -171,6 +194,7 @@ class RshJsonParser {
     double runtime = 0;
     std::string context;
     int index = 0;
+    unsigned long contextI = 0;
     while ((pos = line.find(del)) != std::string::npos) {
       token = line.substr(0, pos);
       switch(index) {
@@ -187,18 +211,20 @@ class RshJsonParser {
     while ((pos = line.find(del)) != std::string::npos) {
       token = line.substr(0, pos);
       switch(index) {
-        case 0: runtime = std::stod(token); break;
+        case 0: contextI = std::stoul(token); break;
+        case 1: runtime = std::stod(token); break;
       }
       line.erase(0, pos + del.length());
       index++;
     }
     method_id = line;
     while (method_id.compare(method.id) != 0) {
-      std::cout << "method broken: " << method.id << " popping stack" << std::endl;
+      failed++;
       method = hsm->pop();
     }
     method.runtime = runtime;
     method.context = context;
+    method.contextI = contextI;
     updateMethodCSMap(method);
     updateMethodCTMap(method);
     updateMethodRuntimeMap(method);
@@ -217,6 +243,7 @@ class RshJsonParser {
     methodCTMap[method.id][method.context].cmp += method.rir2pir;
     methodCTMap[method.id][method.context].opt += method.opt;
     methodCTMap[method.id][method.context].run += method.runtime;
+    methodCTMap[method.id][method.context].contextI = method.contextI;
   }
 
   void updateMethodRuntimeMap(RshMethod & method) {
@@ -224,6 +251,7 @@ class RshJsonParser {
     methodRuntimeMap[method.id].opt += method.opt;
     methodRuntimeMap[method.id].runtime += method.runtime;
     methodRuntimeMap[method.id].effect += method.effect;
+    methodRuntimeMap[method.id].hast = method.hast;
   }
 
   void updateMethodContextMap(RshMethod & method) {
@@ -411,6 +439,7 @@ class RshJsonParser {
       jsonFile << "\"runtime\":" << method.second.runtime << ",";
       jsonFile << "\"effect\":" << ((method.second.runtime / totalRuntime) * 100) << ",";
       jsonFile << "\"rir2pir\":" << method.second.rir2pir << ",";
+      jsonFile << "\"hast\":" << method.second.hast << ",";
       jsonFile << "\"opt\":" << method.second.opt;
       jsonFile << "}";
       index_outer++;
@@ -484,6 +513,57 @@ class RshJsonParser {
     jsonFile << "}\n";
   }
 
+  void blacklist_fun(std::string & id, std::vector<TempSortObj<int>> & t_runs, int & total_runs, std::vector<unsigned long> & blacklist) {
+    if (t_runs.size() <= 1) return;
+
+    TempSortObj<int> last_element = *(--t_runs.end());
+    if ((((double)last_element.param / (double)total_runs)*100) > BLACKLIST_THRESHOLD) {
+      return;
+    } else {
+      blacklisted++;
+      t_runs.pop_back();
+      blacklist.push_back(methodCTMap[id][last_element.id].contextI);
+      total_runs -= last_element.param;
+      blacklist_fun(id, t_runs, total_runs, blacklist);
+    }
+  }
+  
+  void createContextBlacklist(std::string & id, std::set<std::string> contexts) {
+    // remove baseline
+    contexts.erase("baseline");
+    std::vector<TempSortObj<int>> t_runs;
+    std::vector<unsigned long> blacklist;
+    std::vector<unsigned long> whitelist;
+    int total_runs = 0;
+    for (auto & c : contexts) {
+      TempSortObj<int> t1;
+      t1.id = c;
+      t1.param = methodCTMap[id][c].runs;
+      total_runs += methodCTMap[id][c].runs;
+      t_runs.push_back(t1);
+    }
+    std::sort(t_runs.begin(), t_runs.end(), ObjectSorter<int>());
+    // std::cout << std::endl << "method    [" << id << "]: ";
+    // for (auto & item : t_runs) {
+    //   std::cout << methodCTMap[id][item.id].runs << "[" << methodCTMap[id][item.id].contextI << "]" << " ";
+    // }
+    blacklist_fun(id, t_runs, total_runs, blacklist);
+    if (blacklist.size() > 0)
+    blacklistMap[id] = blacklist;
+    // std::cout << std::endl << "blacklist [" << id << "]: ";
+    // for (auto & item : blacklist) {
+    //   std::cout << item << ",";
+    // }
+    // std::cout << std::endl << "whitelist [" << id << "]: ";
+    for (auto & item : t_runs) {
+      whitelisted++;
+      whitelist.push_back(methodCTMap[id][item.id].contextI);
+      // std::cout << methodCTMap[id][item.id].contextI << ",";
+    }
+    whitelistMap[id] = whitelist;
+    // std::cout << std::endl;
+  }
+
   public:
   RshJsonParser(std::string & d) : del(d) {
     hsm = new HugeStackManager<RshMethod>(lineToObjectParser,singleLineObjectSerializer,d);
@@ -513,6 +593,14 @@ class RshJsonParser {
       totalRuntime = std::stod(line);
 
       std::cout << "initial parsing completed" << std::endl;
+
+      for (auto & m : methodContextMap) {
+        auto method = m.first;
+        auto contextSet = m.second;
+        if (contextSet.size() > 2) {
+          createContextBlacklist(method, contextSet);
+        }
+      }
 
       // for (auto & method : methodCSMap) {
       //   std::cout << "id: " << method.first << std::endl;
@@ -569,8 +657,11 @@ class RshJsonParser {
   }
 
   void saveJson(std::string path) {
-    std::ofstream jsonFile;
+    std::string binPath = path.substr(0, path.size() - 5);
+    std::ofstream jsonFile, whitelistFile, blacklistFile;
     jsonFile.open(path);
+    whitelistFile.open(binPath + ".whitelist");
+    blacklistFile.open(binPath + ".blacklist");
 
     jsonFile << "{\n";
 
@@ -590,6 +681,27 @@ class RshJsonParser {
     jsonFile << "\n}";
 
     jsonFile.close();
+    
+    for (auto & ele : blacklistMap) {
+      blacklistFile << methodRuntimeMap[ele.first].hast << ",";
+      for (auto con : ele.second) {
+        blacklistFile << con << ",";
+      }
+      blacklistFile << std::endl;
+    }
+
+    for (auto & ele : whitelistMap) {
+      whitelistFile << methodRuntimeMap[ele.first].hast << ",";
+      for (auto con : ele.second) {
+        whitelistFile << con << ",";
+      }
+      whitelistFile << std::endl;
+    }
+
+    blacklistFile.close();
+    whitelistFile.close();
+
+    std::cout << "Stack Errors: " << failed << ", Whitelisted: " << whitelisted << ", Blacklisted: " << blacklisted << std::endl;
 
   }
 };
