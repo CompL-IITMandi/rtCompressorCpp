@@ -1,16 +1,19 @@
 # rtCompressorCpp input.logg output.json
 
-clear=0
+clear=1
 op_dir="outputs/"
 hpc=0
-directory=0
-
-while getopts d:c:h: flag
+directory="input"
+level=3
+verbose=0
+while getopts d:c:h:l:v: flag
 do
 	case "${flag}" in
 		d) directory=${OPTARG};;        # directory
-		c) clear=1;;                    # Clear previous outputs
-		h) hpc=1                        # running on HPC ?
+		c) clear=${OPTARG};;            # Clear previous outputs
+		h) hpc=1;;                      # running on HPC ?
+		l) level=${OPTARG};;            # level ( 0 -> [viz], 1 -> [viz + lists], 2 -> [viz + CallGraph], 3 -> [viz + Callgraph + lists] )
+		v) verbose=${OPTARG};;          # verbose
 	esac
 done
 
@@ -56,8 +59,9 @@ do
 	a=($(echo "$eachfile" | tr '/' '\n'))
 	file=${a[-1]}
 	plain_name=${file%.*}
-	output_file="$op_dir${file%.*}.json"
+	mkdir "$op_dir${file%.*}"
+	output_file="$op_dir${file%.*}/${file%.*}.json"
 	printf "\n*** $eachfile --> $output_file ***\n"
-	./rtCompressor $eachfile $output_file
+	./rtCompressor $eachfile $output_file $level $verbose
 	copyOutputs
 done
